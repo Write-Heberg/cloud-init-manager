@@ -38,10 +38,18 @@ func DetectCloudInitDisk() (*DiskInfo, error) {
 
 			if isCloudInitPath(openstackPath) {
 				fmt.Printf("\n✓ Configuration Cloud-Init trouvée dans %s\n", openstackPath)
+
+				// Créer la liste des fichiers immédiatement
+				files := []string{
+					filepath.Join(openstackPath, "META_DATA.JSON"),
+					filepath.Join(openstackPath, "USER_DATA"),
+					filepath.Join(openstackPath, "VENDOR_DATA.JSON"),
+				}
+
 				return &DiskInfo{
 					Path:       path,
 					MountPoint: openstackPath,
-					Files:      []string{},
+					Files:      files,
 				}, nil
 			}
 
@@ -100,22 +108,15 @@ func isCloudInitPath(path string) bool {
 // ListCloudInitFiles returns a list of files in the Cloud-Init disk
 func (d *DiskInfo) ListCloudInitFiles() error {
 	fmt.Printf("\nLecture du contenu du dossier %s...\n", d.MountPoint)
-
-	files, err := filepath.Glob(filepath.Join(d.MountPoint, "*"))
-	if err != nil {
-		return fmt.Errorf("impossible de lister les fichiers: %v", err)
-	}
-
-	d.Files = files
-	return nil
+	return nil // Les fichiers sont déjà dans d.Files
 }
 
 // ReadCloudInitFile reads the content of a specific file from the Cloud-Init disk
 func (d *DiskInfo) ReadCloudInitFile(filename string) ([]byte, error) {
-	fullPath := filepath.Join(d.MountPoint, filename)
-	content, err := os.ReadFile(fullPath)
+	// On utilise directement le nom du fichier car il contient déjà le chemin complet
+	content, err := os.ReadFile(filename)
 	if err != nil {
-		return nil, fmt.Errorf("impossible de lire le fichier %s: %v", filename, err)
+		return nil, fmt.Errorf("impossible de lire le fichier %s: %v", filepath.Base(filename), err)
 	}
 	return content, nil
 }
