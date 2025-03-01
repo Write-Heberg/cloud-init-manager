@@ -1,17 +1,17 @@
 package main
 
 import (
-	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 
+	"cloud-init-manager/pkg/config"
 	"cloud-init-manager/pkg/disk"
-	"cloud-init-manager/pkg/parser"
 )
 
 func main() {
 	fmt.Println("=== Cloud-Init Manager v0.1 ===")
-	fmt.Println("Recherche du disque Cloud-Init...")
+	fmt.Println("Recherche et configuration du système...")
 
 	// Detect Cloud-Init disk
 	diskInfo, err := disk.DetectCloudInitDisk()
@@ -21,53 +21,78 @@ func main() {
 		return
 	}
 
-	fmt.Printf("Disque Cloud-Init trouvé: %s\n", diskInfo.Path)
+	fmt.Printf("\nConfiguration trouvée dans: %s\n", diskInfo.MountPoint)
+	fmt.Println("\nAnalyse des fichiers de configuration...")
 
-	// List Cloud-Init files
-	err = diskInfo.ListCloudInitFiles()
-	if err != nil {
-		fmt.Printf("Erreur lors de la lecture des fichiers: %v\n", err)
-		waitForEnter()
-		return
-	}
+	// Lecture des configurations
+	var networkConfig config.NetworkConfig
+	var userConfig config.UserConfig
 
-	fmt.Printf("\nFichiers trouvés (%d):\n", len(diskInfo.Files))
+	// Parcours les fichiers trouvés
 	for _, file := range diskInfo.Files {
-		fmt.Printf("- %s\n", file)
-	}
-
-	// Read and parse each file
-	fmt.Println("\nLecture des fichiers de configuration...")
-	for _, file := range diskInfo.Files {
-		fmt.Printf("\nAnalyse du fichier: %s\n", file)
-
 		content, err := diskInfo.ReadCloudInitFile(file)
 		if err != nil {
-			fmt.Printf("  Erreur de lecture: %v\n", err)
+			fmt.Printf("Erreur de lecture %s: %v\n", file, err)
 			continue
 		}
 
-		config, err := parser.ParseYAML(content)
-		if err != nil {
-			fmt.Printf("  Erreur de parsing YAML: %v\n", err)
-			continue
-		}
+		// Parse selon le type de fichier
+		switch {
+		case contains(file, "META_DATA.JSON"):
+			fmt.Println("\n=== Configuration Metadata ===")
+			var metadata map[string]interface{}
+			if err := json.Unmarshal(content, &metadata); err != nil {
+				fmt.Printf("Erreur parsing metadata: %v\n", err)
+				continue
+			}
+			fmt.Printf("✓ Metadata lu avec succès\n")
 
-		// Export configuration as JSON
-		jsonData, err := config.ExportJSON()
-		if err != nil {
-			fmt.Printf("  Erreur d'export JSON: %v\n", err)
-			continue
-		}
+		case contains(file, "USER_DATA"):
+			fmt.Println("\n=== Configuration Utilisateur ===")
+			if err := json.Unmarshal(content, &userConfig); err != nil {
+				fmt.Printf("Erreur parsing user-data: %v\n", err)
+				continue
+			}
+			fmt.Printf("✓ Configuration utilisateur trouvée pour: %s\n", userConfig.Name)
 
-		fmt.Printf("Configuration trouvée:\n%s\n", string(jsonData))
+		case contains(file, "VENDOR_DATA.JSON"):
+			fmt.Println("\n=== Configuration Réseau ===")
+			if err := json.Unmarshal(content, &networkConfig); err != nil {
+				fmt.Printf("Erreur parsing network config: %v\n", err)
+				continue
+			}
+			fmt.Printf("✓ Configuration réseau trouvée\n")
+		}
 	}
 
-	fmt.Println("\nAnalyse terminée.")
+	// Application des configurations
+	fmt.Println("\nApplication des configurations...")
+
+	// Configure le réseau si des paramètres sont trouvés
+	if networkConfig.Version > 0 {
+		fmt.Println("\n=== Application de la configuration réseau ===")
+		if err := config.ApplyNetworkConfig(&networkConfig); err != nil {
+			fmt.Printf("Erreur configuration réseau: %v\n", err)
+		}
+	}
+
+	// Configure l'utilisateur si des paramètres sont trouvés
+	if userConfig.Name != "" {
+		fmt.Println("\n=== Application de la configuration utilisateur ===")
+		if err := config.ApplyUserConfig(&userConfig); err != nil {
+			fmt.Printf("Erreur configuration utilisateur: %v\n", err)
+		}
+	}
+
+	fmt.Println("\n=== Configuration terminée ===")
 	waitForEnter()
 }
 
 func waitForEnter() {
 	fmt.Println("\nAppuyez sur Entrée pour quitter...")
-	bufio.NewReader(os.Stdin).ReadBytes('\n')
+	os.Stdin.Read(make([]byte, 1))
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && s[len(s)-len(substr):] == substr
 }
