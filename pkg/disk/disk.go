@@ -16,33 +16,43 @@ type DiskInfo struct {
 
 // DetectCloudInitDisk attempts to find the Cloud-Init disk on the system
 func DetectCloudInitDisk() (*DiskInfo, error) {
+	fmt.Println("\nDémarrage de la recherche du disque Cloud-Init...")
+	fmt.Println("================================================")
+
 	// Liste des lettres de lecteur possibles
 	driveLetters := []string{"A:", "B:", "C:", "D:", "E:", "F:", "G:", "H:", "I:", "J:", "K:", "L:", "M:",
 		"N:", "O:", "P:", "Q:", "R:", "S:", "T:", "U:", "V:", "W:", "X:", "Y:", "Z:"}
 
-	fmt.Println("Vérification des lecteurs disponibles...")
-
+	foundDrives := 0
 	for _, drive := range driveLetters {
 		path := drive + "\\"
 
 		// Vérifie si le lecteur existe et est accessible
 		_, err := os.Stat(path)
 		if err == nil {
-			fmt.Printf("Vérification du lecteur %s...\n", drive)
+			foundDrives++
+			fmt.Printf("\nLecteur trouvé: %s\n", drive)
+			fmt.Printf("  → Vérification des fichiers cloud-init...\n")
 
 			// Vérifie si c'est notre disque cloud-init
 			if isCloudInitDisk(path) {
-				fmt.Printf("Disque Cloud-Init trouvé sur %s\n", drive)
+				fmt.Printf("\n✓ Disque Cloud-Init confirmé sur %s\n", drive)
 				return &DiskInfo{
 					Path:       path,
 					MountPoint: path,
 					Files:      []string{},
 				}, nil
+			} else {
+				fmt.Printf("  → Pas de fichiers cloud-init sur ce lecteur\n")
 			}
 		}
 	}
 
-	return nil, fmt.Errorf("disque Cloud-Init non trouvé. Assurez-vous que le disque est bien monté et contient les fichiers cloud-init nécessaires")
+	if foundDrives == 0 {
+		return nil, fmt.Errorf("aucun lecteur accessible trouvé sur le système")
+	}
+
+	return nil, fmt.Errorf("\nAucun disque Cloud-Init trouvé après vérification de %d lecteurs.\nAssurez-vous que:\n1. Le disque cloud-init est bien monté\n2. Il contient au moins un des fichiers suivants:\n   - meta-data\n   - user-data\n   - network-config\n3. Vous avez les droits administrateur", foundDrives)
 }
 
 // isCloudInitDisk vérifie si le lecteur contient les fichiers typiques de cloud-init
@@ -61,12 +71,10 @@ func isCloudInitDisk(path string) bool {
 		"network-config.yaml",
 	}
 
-	fmt.Printf("  Recherche des fichiers cloud-init dans %s\n", path)
-
 	// Vérifie d'abord si le volume s'appelle "config-2"
 	volumeInfo, err := getVolumeLabel(path)
 	if err == nil && strings.Contains(strings.ToLower(volumeInfo), "config-2") {
-		fmt.Printf("  Trouvé volume nommé 'config-2'\n")
+		fmt.Printf("  → Volume nommé 'config-2' détecté!\n")
 		return true
 	}
 
@@ -74,7 +82,7 @@ func isCloudInitDisk(path string) bool {
 	for _, file := range commonFiles {
 		fullPath := filepath.Join(path, file)
 		if _, err := os.Stat(fullPath); err == nil {
-			fmt.Printf("  Trouvé fichier: %s\n", file)
+			fmt.Printf("  → Fichier trouvé: %s\n", file)
 			return true
 		}
 	}
@@ -91,7 +99,7 @@ func getVolumeLabel(path string) (string, error) {
 
 // ListCloudInitFiles returns a list of files in the Cloud-Init disk
 func (d *DiskInfo) ListCloudInitFiles() error {
-	fmt.Printf("Lecture du contenu du disque %s...\n", d.Path)
+	fmt.Printf("\nLecture du contenu du disque %s...\n", d.Path)
 
 	files, err := filepath.Glob(filepath.Join(d.MountPoint, "*"))
 	if err != nil {
