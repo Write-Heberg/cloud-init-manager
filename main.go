@@ -1,53 +1,73 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
-	"log"
+	"os"
 
 	"cloud-init-manager/pkg/disk"
 	"cloud-init-manager/pkg/parser"
 )
 
 func main() {
-	log.Println("Starting Cloud-Init Manager...")
+	fmt.Println("=== Cloud-Init Manager v0.1 ===")
+	fmt.Println("Recherche du disque Cloud-Init...")
 
 	// Detect Cloud-Init disk
 	diskInfo, err := disk.DetectCloudInitDisk()
 	if err != nil {
-		log.Fatalf("Failed to detect Cloud-Init disk: %v", err)
+		fmt.Printf("Erreur: %v\n", err)
+		waitForEnter()
+		return
 	}
+
+	fmt.Printf("Disque Cloud-Init trouvé: %s\n", diskInfo.Path)
 
 	// List Cloud-Init files
 	err = diskInfo.ListCloudInitFiles()
 	if err != nil {
-		log.Fatalf("Failed to list Cloud-Init files: %v", err)
+		fmt.Printf("Erreur lors de la lecture des fichiers: %v\n", err)
+		waitForEnter()
+		return
 	}
 
-	log.Printf("Found %d files on Cloud-Init disk", len(diskInfo.Files))
+	fmt.Printf("\nFichiers trouvés (%d):\n", len(diskInfo.Files))
+	for _, file := range diskInfo.Files {
+		fmt.Printf("- %s\n", file)
+	}
 
 	// Read and parse each file
+	fmt.Println("\nLecture des fichiers de configuration...")
 	for _, file := range diskInfo.Files {
+		fmt.Printf("\nAnalyse du fichier: %s\n", file)
+
 		content, err := diskInfo.ReadCloudInitFile(file)
 		if err != nil {
-			log.Printf("Warning: Failed to read file %s: %v", file, err)
+			fmt.Printf("  Erreur de lecture: %v\n", err)
 			continue
 		}
 
 		config, err := parser.ParseYAML(content)
 		if err != nil {
-			log.Printf("Warning: Failed to parse file %s: %v", file, err)
+			fmt.Printf("  Erreur de parsing YAML: %v\n", err)
 			continue
 		}
 
 		// Export configuration as JSON
 		jsonData, err := config.ExportJSON()
 		if err != nil {
-			log.Printf("Warning: Failed to export JSON for file %s: %v", file, err)
+			fmt.Printf("  Erreur d'export JSON: %v\n", err)
 			continue
 		}
 
-		fmt.Printf("Configuration from %s:\n%s\n", file, string(jsonData))
+		fmt.Printf("Configuration trouvée:\n%s\n", string(jsonData))
 	}
 
-	fmt.Println("Cloud-Init Manager completed successfully")
+	fmt.Println("\nAnalyse terminée.")
+	waitForEnter()
+}
+
+func waitForEnter() {
+	fmt.Println("\nAppuyez sur Entrée pour quitter...")
+	bufio.NewReader(os.Stdin).ReadBytes('\n')
 }
