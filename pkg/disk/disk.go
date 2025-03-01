@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"golang.org/x/sys/windows"
 )
 
 // DiskInfo represents information about a Cloud-Init disk
@@ -17,45 +15,47 @@ type DiskInfo struct {
 
 // DetectCloudInitDisk attempts to find the Cloud-Init disk on the system
 func DetectCloudInitDisk() (*DiskInfo, error) {
-	// Get all available drives
-	drives, err := windows.GetLogicalDrives()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get logical drives: %v", err)
-	}
+	// Liste des lettres de lecteur possibles
+	driveLetters := []string{"A:", "B:", "C:", "D:", "E:", "F:", "G:", "H:", "I:", "J:", "K:", "L:", "M:",
+		"N:", "O:", "P:", "Q:", "R:", "S:", "T:", "U:", "V:", "W:", "X:", "Y:", "Z:"}
 
-	// Check each drive for config-2
-	for i := 0; i < 26; i++ {
-		if drives&(1<<uint(i)) != 0 {
-			driveLetter := string(rune('A' + i))
-			path := fmt.Sprintf("%s:\\", driveLetter)
+	for _, drive := range driveLetters {
+		path := drive + "\\"
 
-			// Check if this drive is named "config-2"
-			volumeName := make([]uint16, windows.MAX_PATH+1)
-			err := windows.GetVolumeInformation(
-				windows.StringToUTF16Ptr(path),
-				&volumeName[0],
-				uint32(len(volumeName)),
-				nil,
-				nil,
-				nil,
-				nil,
-				0,
-			)
-			if err == nil {
-				name := windows.UTF16ToString(volumeName[:])
-				if name == "config-2" {
-					return &DiskInfo{
-						Path:       path,
-						MountPoint: path,
-						Files:      []string{},
-					}, nil
-				}
+		// Vérifie si le lecteur existe et est accessible
+		_, err := os.Stat(path)
+		if err == nil {
+			// Vérifie si c'est notre disque cloud-init
+			if isCloudInitDisk(path) {
+				return &DiskInfo{
+					Path:       path,
+					MountPoint: path,
+					Files:      []string{},
+				}, nil
 			}
 		}
 	}
 
-	// Si nous n'avons pas trouvé le disque, retournons une erreur
-	return nil, fmt.Errorf("cloud-init disk (config-2) not found")
+	return nil, fmt.Errorf("cloud-init disk not found")
+}
+
+// isCloudInitDisk vérifie si le lecteur contient les fichiers typiques de cloud-init
+func isCloudInitDisk(path string) bool {
+	// Vérifie la présence de fichiers typiques de cloud-init
+	commonFiles := []string{
+		"meta-data",
+		"user-data",
+		"network-config",
+	}
+
+	for _, file := range commonFiles {
+		fullPath := filepath.Join(path, file)
+		if _, err := os.Stat(fullPath); err == nil {
+			return true
+		}
+	}
+
+	return false
 }
 
 // ListCloudInitFiles returns a list of files in the Cloud-Init disk
