@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 // DiskInfo represents information about a Cloud-Init disk
@@ -32,18 +31,24 @@ func DetectCloudInitDisk() (*DiskInfo, error) {
 		if err == nil {
 			foundDrives++
 			fmt.Printf("\nLecteur trouvé: %s\n", drive)
-			fmt.Printf("  → Vérification des fichiers cloud-init...\n")
 
-			// Vérifie si c'est notre disque cloud-init
-			if isCloudInitDisk(path) {
-				fmt.Printf("\n✓ Disque Cloud-Init confirmé sur %s\n", drive)
+			// Vérifie le chemin OPENSTACK/LATEST
+			openstackPath := filepath.Join(path, "OPENSTACK", "LATEST")
+			fmt.Printf("  → Vérification du chemin %s\n", openstackPath)
+
+			if isCloudInitPath(openstackPath) {
+				fmt.Printf("\n✓ Configuration Cloud-Init trouvée dans %s\n", openstackPath)
 				return &DiskInfo{
 					Path:       path,
-					MountPoint: path,
+					MountPoint: openstackPath,
 					Files:      []string{},
 				}, nil
-			} else {
-				fmt.Printf("  → Pas de fichiers cloud-init sur ce lecteur\n")
+			}
+
+			// Vérifie aussi le chemin OPENSTACK/CONTENT
+			contentPath := filepath.Join(path, "OPENSTACK", "CONTENT")
+			if _, err := os.Stat(contentPath); err == nil {
+				fmt.Printf("  → Dossier CONTENT trouvé: %s\n", contentPath)
 			}
 		}
 	}
@@ -52,37 +57,39 @@ func DetectCloudInitDisk() (*DiskInfo, error) {
 		return nil, fmt.Errorf("aucun lecteur accessible trouvé sur le système")
 	}
 
-	return nil, fmt.Errorf("\nAucun disque Cloud-Init trouvé après vérification de %d lecteurs.\nAssurez-vous que:\n1. Le disque cloud-init est bien monté\n2. Il contient au moins un des fichiers suivants:\n   - meta-data\n   - user-data\n   - network-config\n3. Vous avez les droits administrateur", foundDrives)
+	return nil, fmt.Errorf("\nAucune configuration Cloud-Init trouvée après vérification de %d lecteurs.\nChemin attendu: LECTEUR:\\OPENSTACK\\LATEST\nFichiers attendus:\n   - META_DATA.JSON\n   - USER_DATA\n   - VENDOR_DATA.JSON", foundDrives)
 }
 
-// isCloudInitDisk vérifie si le lecteur contient les fichiers typiques de cloud-init
-func isCloudInitDisk(path string) bool {
-	// Liste des fichiers possibles de cloud-init
-	commonFiles := []string{
-		"meta-data",
-		"user-data",
-		"network-config",
-		"vendor-data",
-		"meta-data.json",
-		"user-data.json",
-		"network-config.json",
-		"meta-data.yaml",
-		"user-data.yaml",
-		"network-config.yaml",
+// isCloudInitPath vérifie si le chemin contient les fichiers typiques de cloud-init
+func isCloudInitPath(path string) bool {
+	// Liste des fichiers à vérifier
+	requiredFiles := []string{
+		"META_DATA.JSON",
+		"USER_DATA",
+		"VENDOR_DATA.JSON",
 	}
 
-	// Vérifie d'abord si le volume s'appelle "config-2"
-	volumeInfo, err := getVolumeLabel(path)
-	if err == nil && strings.Contains(strings.ToLower(volumeInfo), "config-2") {
-		fmt.Printf("  → Volume nommé 'config-2' détecté!\n")
-		return true
+	// Vérifie si le dossier existe
+	if _, err := os.Stat(path); err != nil {
+		return false
 	}
 
-	// Vérifie la présence des fichiers
-	for _, file := range commonFiles {
+	fmt.Printf("  → Vérification des fichiers dans %s\n", path)
+
+	// Vérifie la présence de chaque fichier
+	for _, file := range requiredFiles {
 		fullPath := filepath.Join(path, file)
 		if _, err := os.Stat(fullPath); err == nil {
 			fmt.Printf("  → Fichier trouvé: %s\n", file)
+		} else {
+			fmt.Printf("  → Fichier manquant: %s\n", file)
+			// On continue la vérification même si un fichier est manquant
+		}
+	}
+
+	// Vérifie qu'au moins un des fichiers existe
+	for _, file := range requiredFiles {
+		if _, err := os.Stat(filepath.Join(path, file)); err == nil {
 			return true
 		}
 	}
@@ -90,16 +97,9 @@ func isCloudInitDisk(path string) bool {
 	return false
 }
 
-// getVolumeLabel tente de lire le nom du volume
-func getVolumeLabel(path string) (string, error) {
-	// Cette fonction est un placeholder - sous Windows, nous devrions utiliser l'API Windows
-	// pour obtenir le vrai nom du volume
-	return "", nil
-}
-
 // ListCloudInitFiles returns a list of files in the Cloud-Init disk
 func (d *DiskInfo) ListCloudInitFiles() error {
-	fmt.Printf("\nLecture du contenu du disque %s...\n", d.Path)
+	fmt.Printf("\nLecture du contenu du dossier %s...\n", d.MountPoint)
 
 	files, err := filepath.Glob(filepath.Join(d.MountPoint, "*"))
 	if err != nil {
